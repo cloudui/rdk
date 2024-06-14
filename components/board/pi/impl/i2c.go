@@ -3,9 +3,8 @@
 package piimpl
 
 // #include <stdlib.h>
-// #include <pigpio.h>
+// #include "mypigpio.h"
 // #include "pi.h"
-// #cgo LDFLAGS: -lpigpio
 import "C"
 
 import (

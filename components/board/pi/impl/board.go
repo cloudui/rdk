@@ -15,9 +15,8 @@ package piimpl
 */
 
 // #include <stdlib.h>
-// #include <pigpio.h>
+// #include	"mypigpio.h"
 // #include "pi.h"
-// #cgo LDFLAGS: -lpigpio
 import "C"
 
 import (
@@ -122,6 +121,11 @@ func initializePigpio() error {
 
 	if pigpioInitialized {
 		return nil
+	}
+
+	resetRes := C.resetDMAChannels()
+	if resetRes != 0 {
+		return errors.New("failed to reset DMA channels")
 	}
 
 	resCode := C.gpioInitialise()
