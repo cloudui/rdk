@@ -893,6 +893,11 @@ Assumes two counters per block.  Each counter 4 * 16 (16^4=65536)
 
 #define PI_MAX_PATH 512
 
+// CUSTOM DEFINES
+#define VIAM_ALLOC_MEM_HANDLES_FILE "alloc_mem_handles.txt"
+
+static FILE *fAllocMemHandles = NULL;
+
 /* typedef ------------------------------------------------------- */
 
 typedef void (*callbk_t) ();
@@ -2762,6 +2767,7 @@ static void mbClose(int fd)
 
 static int mbProperty(int fd, void *buf)
 {
+   // printf("MB_IOCTL %d\n", MB_IOCTL);
    return ioctl(fd, MB_IOCTL, buf);
 }
 
@@ -2868,6 +2874,15 @@ static void mbDMAFree(DMAMem_t *DMAMemP)
 
 static int mbDMAAlloc(DMAMem_t *DMAMemP, unsigned size, uint32_t pi_mem_flag)
 {
+   FILE *fd;
+   
+   fd = fopen(VIAM_ALLOC_MEM_HANDLES_FILE, "a");
+   if (fd == NULL)
+   {
+      fprintf(stderr, "Failed to open %s\n", VIAM_ALLOC_MEM_HANDLES_FILE);
+      return 0;
+   }
+
    DMAMemP->size = size;
 
    DMAMemP->handle =
@@ -2875,13 +2890,18 @@ static int mbDMAAlloc(DMAMem_t *DMAMemP, unsigned size, uint32_t pi_mem_flag)
 
    if (DMAMemP->handle)
    {
+      printf("OK with handle: %x\n", DMAMemP->handle);
+      fprintf(fd, "%x\n", DMAMemP->handle);
+
       DMAMemP->bus_addr = mbLockMemory(fdMbox, DMAMemP->handle);
 
       DMAMemP->virtual_addr =
          mbMapMem(BUS_TO_PHYS(DMAMemP->bus_addr), size);
 
+      fclose(fd);
       return 1;
    }
+   fclose(fd);
    return 0;
 }
 
@@ -7685,6 +7705,7 @@ static int initAllocDMAMem(void)
          status = initPagemapBlock(i);
          if (status < 0)
          {
+            printf("initPagemapBlock failed at: %d with status: %d\n", i, status);
             close(fdPmap);
             return status;
          }
@@ -7713,11 +7734,14 @@ static int initAllocDMAMem(void)
       if (fdMbox < 0)
          SOFT_ERROR(PI_INIT_FAILED, "mbox open failed(%m)");
 
+      // fAllocMemHandles = fopen(VIAM_ALLOC_MEM_HANDLES_FILE, "w");
+
       for (i=0; i<(bufferBlocks+PI_WAVE_BLOCKS); i++)
       {
          status = initMboxBlock(i);
          if (status < 0)
          {
+            printf("initMboxBlock failed at: %d with status: %d\n", i, status);
             mbClose(fdMbox);
             return status;
          }
@@ -14077,6 +14101,47 @@ int resetDMAChannels(void) {
    }
 
     return 0;
+
+}
+
+int clearDMAMemory(void) {
+   int i;
+   char line[64];
+   unsigned int handle;
+   FILE *fp;
+
+   fdMbox = mbOpen();
+   
+   if (fdMbox < 0) {
+      printf("Error opening mbox!\n");
+      return -1;
+   }
+
+   fp = fopen(VIAM_ALLOC_MEM_HANDLES_FILE, "r"); 
+   
+   if (fp == NULL) {
+      printf("Error opening mem alloc file!\n");
+      return -1;
+   }
+
+   // read each handle from viam file and free it
+   while (fgets(line, sizeof(line), fp) != NULL) {
+      if (sscanf(line, "%x", &handle) == 1) {
+         printf("Freeing handle: %x\n", handle);
+         mbUnlockMemory(fdMbox, handle);
+         mbReleaseMemory(fdMbox, handle);
+      }
+   }
+
+   // clear the file
+   freopen(VIAM_ALLOC_MEM_HANDLES_FILE, "w", fp);
+
+   fclose(fp);
+   mbClose(fdMbox);
+
+   fdMbox = -1;
+
+   return 0;
 
 }
 

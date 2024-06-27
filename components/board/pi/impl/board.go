@@ -128,6 +128,11 @@ func initializePigpio() error {
 		return errors.New("failed to reset DMA channels")
 	}
 
+	clearRes := C.clearDMAMemory()
+	if clearRes != 0 {
+		return errors.New("failed to clear DMA memory")
+	}
+
 	resCode := C.gpioInitialise()
 	if resCode < 0 {
 		// failed to init, check for common causes

@@ -6571,3 +6571,4 @@ after this command is issued.
 #endif
 
 int resetDMAChannels(void);
+int clearDMAMemory(void);
