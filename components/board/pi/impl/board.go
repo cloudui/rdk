@@ -151,6 +151,11 @@ func newPigpio(ctx context.Context, name resource.Name, cfg resource.Config, log
 		return nil, picommon.ConvertErrorCodeToMessage(int(resCode), "gpioCfgSetInternals failed with code")
 	}
 
+	// Change DMA to pagemap allocation
+	C.gpioCfgMemAlloc(1)
+	fmt.Print("Pagemap val ")
+	fmt.Println(C.PI_MEM_ALLOC_PAGEMAP)
+
 	if err := initializePigpio(); err != nil {
 		return nil, err
 	}
