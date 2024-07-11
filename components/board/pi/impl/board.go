@@ -15,7 +15,7 @@ package piimpl
 */
 
 // #include <stdlib.h>
-// #include <pigpio.h>
+// #include <pigpiod_if2.h>
 // #include "pi.h"
 // #cgo LDFLAGS: -lpigpio
 import "C"
@@ -104,6 +104,8 @@ type piPigpio struct {
 	logger       logging.Logger
 	isClosed     bool
 
+	piID int
+
 	activeBackgroundWorkers sync.WaitGroup
 }
 
@@ -124,7 +126,7 @@ func initializePigpio() error {
 		return nil
 	}
 
-	resCode := C.gpioInitialise()
+	piID := C.pigpio_start(C.NULL, C.NULL)
 	if resCode < 0 {
 		// failed to init, check for common causes
 		_, err := os.Stat("/sys/bus/platform/drivers/raspberrypi-firmware")
