@@ -3,9 +3,9 @@
 package piimpl
 
 // #include <stdlib.h>
-// #include <pigpio.h>
+// #include <pigpiod_if2.h>
 // #include "pi.h"
-// #cgo LDFLAGS: -lpigpio
+// #cgo LDFLAGS: -lpigpiod_if2
 import "C"
 
 import (
@@ -34,7 +34,7 @@ func (s *piPigpioI2CHandle) Write(ctx context.Context, tx []byte) error {
 	txPtr := C.CBytes(tx)
 	defer C.free(txPtr)
 
-	ret := int(C.i2cWriteDevice(s.handle, (*C.char)(txPtr), (C.uint)(len(tx))))
+	ret := int(C.i2c_write_device(C.int(s.bus.pi.piID), s.handle, (*C.char)(txPtr), (C.uint)(len(tx))))
 
 	if ret != 0 {
 		return picommon.ConvertErrorCodeToMessage(ret, "error with i2c write")
@@ -49,7 +49,7 @@ func (s *piPigpioI2CHandle) Read(ctx context.Context, count int) ([]byte, error)
 	rxPtr := C.CBytes(rx)
 	defer C.free(rxPtr)
 
-	ret := int(C.i2cReadDevice(s.handle, (*C.char)(rxPtr), (C.uint)(count)))
+	ret := int(C.i2c_read_device(C.int(s.bus.pi.piID), s.handle, (*C.char)(rxPtr), (C.uint)(count)))
 
 	if ret <= 0 {
 		return nil, picommon.ConvertErrorCodeToMessage(ret, "error with i2c read")
@@ -59,7 +59,7 @@ func (s *piPigpioI2CHandle) Read(ctx context.Context, count int) ([]byte, error)
 }
 
 func (s *piPigpioI2CHandle) ReadByteData(ctx context.Context, register byte) (byte, error) {
-	res := C.i2c_read_byte_data(s.handle, C.uint(register))
+	res := C.i2c_read_byte_data(C.int(s.bus.pi.piID), s.handle, C.uint(register))
 	if res < 0 {
 		return 0, picommon.ConvertErrorCodeToMessage(int(res), "error in ReadByteData")
 	}
@@ -67,7 +67,7 @@ func (s *piPigpioI2CHandle) ReadByteData(ctx context.Context, register byte) (by
 }
 
 func (s *piPigpioI2CHandle) WriteByteData(ctx context.Context, register, data byte) error {
-	res := C.i2c_write_byte_data(s.handle, C.uint(register), C.uint(data))
+	res := C.i2c_write_byte_data(C.int(s.bus.pi.piID), s.handle, C.uint(register), C.uint(data))
 	if res != 0 {
 		return picommon.ConvertErrorCodeToMessage(int(res), "error in WriteByteData")
 	}
@@ -80,8 +80,8 @@ func (s *piPigpioI2CHandle) ReadBlockData(ctx context.Context, register byte, nu
 	}
 
 	data := make([]byte, numBytes)
-	response := C.i2cReadI2CBlockData(
-		s.handle, C.uint(register), (*C.char)(&data[0]), C.uint(numBytes))
+	response := C.i2c_read_i2c_block(
+		C.int(s.bus.pi.piID), s.handle, C.uint(register), (*C.char)(&data[0]), C.uint(numBytes))
 	if response < 0 {
 		return nil, picommon.ConvertErrorCodeToMessage(int(response), "error in ReadBlockData")
 	}
@@ -94,8 +94,8 @@ func (s *piPigpioI2CHandle) WriteBlockData(ctx context.Context, register byte, d
 		return errors.New("Cannot write more than 32 bytes from I2C")
 	}
 
-	response := C.i2cWriteI2CBlockData(
-		s.handle, C.uint(register), (*C.char)(&data[0]), C.uint(numBytes))
+	response := C.i2c_write_i2c_block_data(
+		C.int(s.bus.pi.piID), s.handle, C.uint(register), (*C.char)(&data[0]), C.uint(numBytes))
 	if response != 0 {
 		return picommon.ConvertErrorCodeToMessage(int(response), "error in WriteBlockData")
 	}
@@ -108,7 +108,7 @@ func (s *piPigpioI2C) OpenHandle(addr byte) (buses.I2CHandle, error) {
 	// Raspberry Pis are all on i2c bus 1
 	// Exception being the very first model which is on 0
 	bus := (C.uint)(s.id)
-	temp := C.i2c_open(bus, (C.uint)(addr), handle.i2cFlags)
+	temp := C.i2c_open(C.int(s.bus.pi.piID), bus, (C.uint)(addr), handle.i2cFlags)
 
 	if temp < 0 {
 		errMsg := fmt.Sprintf("error opening I2C Bus %d, flags were %X", bus, handle.i2cFlags)
@@ -120,6 +120,6 @@ func (s *piPigpioI2C) OpenHandle(addr byte) (buses.I2CHandle, error) {
 }
 
 func (s *piPigpioI2CHandle) Close() error {
-	C.i2c_close(s.handle)
+	C.i2c_close(C.int(s.bus.pi.piID), s.handle)
 	return nil
 }
