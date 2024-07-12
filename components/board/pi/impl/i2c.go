@@ -59,7 +59,7 @@ func (s *piPigpioI2CHandle) Read(ctx context.Context, count int) ([]byte, error)
 }
 
 func (s *piPigpioI2CHandle) ReadByteData(ctx context.Context, register byte) (byte, error) {
-	res := C.i2cReadByteData(s.handle, C.uint(register))
+	res := C.i2c_read_byte_data(s.handle, C.uint(register))
 	if res < 0 {
 		return 0, picommon.ConvertErrorCodeToMessage(int(res), "error in ReadByteData")
 	}
@@ -67,7 +67,7 @@ func (s *piPigpioI2CHandle) ReadByteData(ctx context.Context, register byte) (by
 }
 
 func (s *piPigpioI2CHandle) WriteByteData(ctx context.Context, register, data byte) error {
-	res := C.i2cWriteByteData(s.handle, C.uint(register), C.uint(data))
+	res := C.i2c_write_byte_data(s.handle, C.uint(register), C.uint(data))
 	if res != 0 {
 		return picommon.ConvertErrorCodeToMessage(int(res), "error in WriteByteData")
 	}
@@ -108,7 +108,7 @@ func (s *piPigpioI2C) OpenHandle(addr byte) (buses.I2CHandle, error) {
 	// Raspberry Pis are all on i2c bus 1
 	// Exception being the very first model which is on 0
 	bus := (C.uint)(s.id)
-	temp := C.i2cOpen(bus, (C.uint)(addr), handle.i2cFlags)
+	temp := C.i2c_open(bus, (C.uint)(addr), handle.i2cFlags)
 
 	if temp < 0 {
 		errMsg := fmt.Sprintf("error opening I2C Bus %d, flags were %X", bus, handle.i2cFlags)
@@ -120,6 +120,6 @@ func (s *piPigpioI2C) OpenHandle(addr byte) (buses.I2CHandle, error) {
 }
 
 func (s *piPigpioI2CHandle) Close() error {
-	C.i2cClose(s.handle)
+	C.i2c_close(s.handle)
 	return nil
 }
