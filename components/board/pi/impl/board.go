@@ -15,9 +15,9 @@ package piimpl
 */
 
 // #include <stdlib.h>
-// #include <pigpio.h>
+// #include <pigpiod_if2.h>
 // #include "pi.h"
-// #cgo LDFLAGS: -lpigpio
+// #cgo LDFLAGS: -lpigpiod_if2
 import "C"
 
 import (
@@ -104,6 +104,8 @@ type piPigpio struct {
 	logger       logging.Logger
 	isClosed     bool
 
+	piID int
+
 	activeBackgroundWorkers sync.WaitGroup
 }
 
@@ -116,42 +118,35 @@ var (
 	instances  = map[*piPigpio]struct{}{}
 )
 
-func initializePigpio() error {
+func initializePigpio() (int, error) {
 	instanceMu.Lock()
 	defer instanceMu.Unlock()
 
 	if pigpioInitialized {
-		return nil
+		return -1, nil
 	}
 
-	resCode := C.gpioInitialise()
-	if resCode < 0 {
+	piID := C.pigpio_start(C.NULL, C.NULL)
+	if piID < 0 {
 		// failed to init, check for common causes
 		_, err := os.Stat("/sys/bus/platform/drivers/raspberrypi-firmware")
 		if err != nil {
-			return errors.New("not running on a pi")
+			return -1, errors.New("not running on a pi")
 		}
 		if os.Getuid() != 0 {
-			return errors.New("not running as root, try sudo")
+			return -1, errors.New("not running as root, try sudo")
 		}
-		return picommon.ConvertErrorCodeToMessage(int(resCode), "error")
+		return -1, picommon.ConvertErrorCodeToMessage(int(resCode), "error")
 	}
 
 	pigpioInitialized = true
-	return nil
+	return piID, nil
 }
 
 // newPigpio makes a new pigpio based Board using the given config.
 func newPigpio(ctx context.Context, name resource.Name, cfg resource.Config, logger logging.Logger) (board.Board, error) {
-	// this is so we can run it inside a daemon
-	internals := C.gpioCfgGetInternals()
-	internals |= C.PI_CFG_NOSIGHANDLER
-	resCode := C.gpioCfgSetInternals(internals)
-	if resCode < 0 {
-		return nil, picommon.ConvertErrorCodeToMessage(int(resCode), "gpioCfgSetInternals failed with code")
-	}
-
-	if err := initializePigpio(); err != nil {
+	piID, err := initializePigpio()
+	if err != nil {
 		return nil, err
 	}
 
@@ -162,11 +157,12 @@ func newPigpio(ctx context.Context, name resource.Name, cfg resource.Config, log
 		isClosed:   false,
 		cancelCtx:  cancelCtx,
 		cancelFunc: cancelFunc,
+		piID:       piID,
 	}
 
 	if err := piInstance.Reconfigure(ctx, nil, cfg); err != nil {
 		// This has to happen outside of the lock to avoid a deadlock with interrupts.
-		C.gpioTerminate()
+		C.pigpio_stop(C.int(piID))
 		instanceMu.Lock()
 		pigpioInitialized = false
 		instanceMu.Unlock()
@@ -313,7 +309,7 @@ func (pi *piPigpio) reconfigureInterrupts(ctx context.Context, cfg *Config) erro
 
 		if oldBcom, ok := findInterruptBcom(interrupt, oldInterruptsHW); ok {
 			delete(oldInterruptsHW, oldBcom)
-			if result := C.teardownInterrupt(C.int(oldBcom)); result != 0 {
+			if result := C.teardownInterrupt(C.int(pi.piID), C.int(oldBcom)); result != 0 {
 				return picommon.ConvertErrorCodeToMessage(int(result), "error")
 			}
 		} else {
@@ -323,7 +319,7 @@ func (pi *piPigpio) reconfigureInterrupts(ctx context.Context, cfg *Config) erro
 					"but couldn't find its old bcom!?", name, bcom)
 		}
 
-		if result := C.setupInterrupt(C.int(bcom)); result != 0 {
+		if result := C.setupInterrupt(C.int(pi.piID), C.int(bcom)); result != 0 {
 			return picommon.ConvertErrorCodeToMessage(int(result), "error")
 		}
 		return nil
@@ -357,7 +353,7 @@ func (pi *piPigpio) reconfigureInterrupts(ctx context.Context, cfg *Config) erro
 		}
 		newInterrupts[newConfig.Name] = di
 		newInterruptsHW[bcom] = di
-		if result := C.setupInterrupt(C.int(bcom)); result != 0 {
+		if result := C.setupInterrupt(C.int(pi.piID), C.int(bcom)); result != 0 {
 			return picommon.ConvertErrorCodeToMessage(int(result), "error")
 		}
 	}
@@ -383,7 +379,7 @@ func (pi *piPigpio) reconfigureInterrupts(ctx context.Context, cfg *Config) erro
 			newInterruptsHW[bcom] = interrupt
 		} else {
 			// This digital interrupt is no longer used.
-			if result := C.teardownInterrupt(C.int(bcom)); result != 0 {
+			if result := C.teardownInterrupt(C.int(pi.piID), C.int(bcom)); result != 0 {
 				return picommon.ConvertErrorCodeToMessage(int(result), "error")
 			}
 		}
@@ -442,7 +438,7 @@ func (pi *piPigpio) GetGPIOBcom(bcom int) (bool, error) {
 		if pi.gpioConfigSet == nil {
 			pi.gpioConfigSet = map[int]bool{}
 		}
-		res := C.gpioSetMode(C.uint(bcom), C.PI_INPUT)
+		res := C.set_mode(C.int(pi.piID), C.uint(bcom), C.PI_INPUT)
 		if res != 0 {
 			return false, picommon.ConvertErrorCodeToMessage(int(res), "failed to set mode")
 		}
@@ -450,7 +446,7 @@ func (pi *piPigpio) GetGPIOBcom(bcom int) (bool, error) {
 	}
 
 	// gpioRead retrns an int 1 or 0, we convert to a bool
-	return C.gpioRead(C.uint(bcom)) != 0, nil
+	return C.gpio_read(C.int(pi.piID), C.uint(bcom)) != 0, nil
 }
 
 // SetGPIOBcom sets the given broadcom pin to high or low.
@@ -461,7 +457,7 @@ func (pi *piPigpio) SetGPIOBcom(bcom int, high bool) error {
 		if pi.gpioConfigSet == nil {
 			pi.gpioConfigSet = map[int]bool{}
 		}
-		res := C.gpioSetMode(C.uint(bcom), C.PI_OUTPUT)
+		res := C.set_mode(C.int(pi.piID), C.uint(bcom), C.PI_OUTPUT)
 		if res != 0 {
 			return picommon.ConvertErrorCodeToMessage(int(res), "failed to set mode")
 		}
@@ -472,12 +468,12 @@ func (pi *piPigpio) SetGPIOBcom(bcom int, high bool) error {
 	if high {
 		v = 1
 	}
-	C.gpioWrite(C.uint(bcom), C.uint(v))
+	C.gpio_write(C.int(pi.piID), C.uint(bcom), C.uint(v))
 	return nil
 }
 
 func (pi *piPigpio) pwmBcom(bcom int) (float64, error) {
-	res := C.gpioGetPWMdutycycle(C.uint(bcom))
+	res := C.get_PWM_dutycycle(pi.piID, C.uint(bcom))
 	return float64(res) / 255, nil
 }
 
@@ -486,7 +482,7 @@ func (pi *piPigpio) SetPWMBcom(bcom int, dutyCyclePct float64) error {
 	pi.mu.Lock()
 	defer pi.mu.Unlock()
 	dutyCycle := rdkutils.ScaleByPct(255, dutyCyclePct)
-	pi.duty = int(C.gpioPWM(C.uint(bcom), C.uint(dutyCycle)))
+	pi.duty = int(C.set_PWM_dutycycle(C.int(pi.piID), C.uint(bcom), C.uint(dutyCycle)))
 	if pi.duty != 0 {
 		return errors.Errorf("pwm set fail %d", pi.duty)
 	}
@@ -494,7 +490,7 @@ func (pi *piPigpio) SetPWMBcom(bcom int, dutyCyclePct float64) error {
 }
 
 func (pi *piPigpio) pwmFreqBcom(bcom int) (uint, error) {
-	res := C.gpioGetPWMfrequency(C.uint(bcom))
+	res := C.get_PWM_frequency(C.int(pi.piID), C.uint(bcom))
 	return uint(res), nil
 }
 
@@ -505,7 +501,7 @@ func (pi *piPigpio) SetPWMFreqBcom(bcom int, freqHz uint) error {
 	if freqHz == 0 {
 		freqHz = 800 // Original default from libpigpio
 	}
-	newRes := C.gpioSetPWMfrequency(C.uint(bcom), C.uint(freqHz))
+	newRes := C.set_PWM_frequency(C.int(pi.piID), C.uint(bcom), C.uint(freqHz))
 
 	if newRes == C.PI_BAD_USER_GPIO {
 		return picommon.ConvertErrorCodeToMessage(int(newRes), "pwm set freq failed")
@@ -590,13 +586,13 @@ func (s *piPigpioSPIHandle) Xfer(ctx context.Context, baud uint, chipSelect stri
 	txPtr := C.CBytes(tx)
 	defer C.free(txPtr)
 
-	handle := C.spiOpen(nativeCS, (C.uint)(baud), (C.uint)(spiFlags))
+	handle := C.spi_open(C.int(s.bus.pi.piID), nativeCS, (C.uint)(baud), (C.uint)(spiFlags))
 
 	if handle < 0 {
 		errMsg := fmt.Sprintf("error opening SPI Bus %s, flags were %X", s.bus.busSelect, spiFlags)
 		return nil, picommon.ConvertErrorCodeToMessage(int(handle), errMsg)
 	}
-	defer C.spiClose((C.uint)(handle))
+	defer C.spi_close(C.int(s.bus.pi.piID), (C.uint)(handle))
 
 	if gpioCS {
 		// We're going to directly control chip select (not using CE0/CE1/CE2 from SPI controller.)
@@ -612,7 +608,7 @@ func (s *piPigpioSPIHandle) Xfer(ctx context.Context, baud uint, chipSelect stri
 		}
 	}
 
-	ret := C.spiXfer((C.uint)(handle), (*C.char)(txPtr), (*C.char)(rxPtr), (C.uint)(count))
+	ret := C.spi_xfer(C.int(s.bus.pi.piID), (C.uint)(handle), (*C.char)(txPtr), (*C.char)(rxPtr), (C.uint)(count))
 
 	if gpioCS {
 		chipPin, err := s.bus.pi.GPIOPinByName(chipSelect)
@@ -703,7 +699,7 @@ func (pi *piPigpio) DigitalInterruptByName(name string) (board.DigitalInterrupt,
 			if err != nil {
 				return nil, err
 			}
-			if result := C.setupInterrupt(C.int(bcom)); result != 0 {
+			if result := C.setupInterrupt(C.int(pi.piID), C.int(bcom)); result != 0 {
 				err := picommon.ConvertErrorCodeToMessage(int(result), "error")
 				return nil, errors.Errorf("Unable to set up interrupt on pin %s: %s", name, err)
 			}
@@ -742,7 +738,7 @@ func (pi *piPigpio) Close(ctx context.Context) error {
 	pi.analogReaders = map[string]*pinwrappers.AnalogSmoother{}
 
 	for bcom := range pi.interruptsHW {
-		if result := C.teardownInterrupt(C.int(bcom)); result != 0 {
+		if result := C.teardownInterrupt(C.int(pi.piID), C.int(bcom)); result != 0 {
 			err = multierr.Combine(err, picommon.ConvertErrorCodeToMessage(int(result), "error"))
 		}
 	}
