@@ -1,4 +1,4 @@
-//123go:build linux && (arm64 || arm) && !no_pigpio && !no_cgo
+//go:build linux && (arm64 || arm) && !no_pigpio && !no_cgo
 
 // Package piimpl contains the implementation of a supported Raspberry Pi board.
 package piimpl
@@ -17,7 +17,7 @@ package piimpl
 // #include <stdlib.h>
 // #include <pigpiod_if2.h>
 // #include "pi.h"
-// #cgo LDFLAGS: -lpigpio
+// #cgo LDFLAGS: -lpigpiod_if2
 import "C"
 
 import (
@@ -446,7 +446,7 @@ func (pi *piPigpio) GetGPIOBcom(bcom int) (bool, error) {
 	}
 
 	// gpioRead retrns an int 1 or 0, we convert to a bool
-	return CC.gpio_read(C.int(pi.piID), C.uint(bcom)) != 0, nil
+	return C.gpio_read(C.int(pi.piID), C.uint(bcom)) != 0, nil
 }
 
 // SetGPIOBcom sets the given broadcom pin to high or low.
