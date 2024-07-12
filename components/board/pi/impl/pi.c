@@ -1,5 +1,5 @@
 //go:build !no_pigpio
-#include <pigpio.h>
+#include <pigpiod_if2.h>
 
 extern void pigpioInterruptCallback(int gpio, int level, uint32_t tick);
 
@@ -12,21 +12,21 @@ void interruptCallback(int gpio, int level, uint32_t tick) {
     pigpioInterruptCallback(gpio, level, tick);
 }
 
-int setupInterrupt(int gpio) {
-    int result = gpioSetMode(gpio, PI_INPUT);
+int setupInterrupt(int pi, int gpio) {
+    int result = set_mode(pi, gpio, PI_INPUT);
     if (result != 0) {
         return result;
     }
-    result = gpioSetPullUpDown(gpio, PI_PUD_UP); // should this be configurable?
+    result = set_pull_up_down(pi, gpio, PI_PUD_UP); // should this be configurable?
     if (result != 0) {
         return result;
     }
-    result = gpioSetAlertFunc(gpio, interruptCallback);
+    result = callback(pi, gpio, interruptCallback);
     return result;
 }
 
-int teardownInterrupt(int gpio) {
-    int result = gpioSetAlertFunc(gpio, NULL);
+int teardownInterrupt(int pi, int gpio) {
+    int result = callback(pi, gpio, NULL);
     // Do we need to unset the pullup resistors?
     return result;
 }
