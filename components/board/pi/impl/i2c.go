@@ -80,7 +80,7 @@ func (s *piPigpioI2CHandle) ReadBlockData(ctx context.Context, register byte, nu
 	}
 
 	data := make([]byte, numBytes)
-	response := C.i2c_read_i2c_block(
+	response := C.i2c_read_i2c_block_data(
 		C.int(s.bus.pi.piID), s.handle, C.uint(register), (*C.char)(&data[0]), C.uint(numBytes))
 	if response < 0 {
 		return nil, picommon.ConvertErrorCodeToMessage(int(response), "error in ReadBlockData")
@@ -108,7 +108,7 @@ func (s *piPigpioI2C) OpenHandle(addr byte) (buses.I2CHandle, error) {
 	// Raspberry Pis are all on i2c bus 1
 	// Exception being the very first model which is on 0
 	bus := (C.uint)(s.id)
-	temp := C.i2c_open(C.int(s.bus.pi.piID), bus, (C.uint)(addr), handle.i2cFlags)
+	temp := C.i2c_open(C.int(s.pi.piID), bus, (C.uint)(addr), handle.i2cFlags)
 
 	if temp < 0 {
 		errMsg := fmt.Sprintf("error opening I2C Bus %d, flags were %X", bus, handle.i2cFlags)

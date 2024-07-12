@@ -126,7 +126,7 @@ func initializePigpio() (int, error) {
 		return -1, nil
 	}
 
-	piID := C.pigpio_start(C.NULL, C.NULL)
+	piID := C.custom_pigpio_start()
 	if piID < 0 {
 		// failed to init, check for common causes
 		_, err := os.Stat("/sys/bus/platform/drivers/raspberrypi-firmware")
@@ -136,11 +136,11 @@ func initializePigpio() (int, error) {
 		if os.Getuid() != 0 {
 			return -1, errors.New("not running as root, try sudo")
 		}
-		return -1, picommon.ConvertErrorCodeToMessage(int(resCode), "error")
+		return -1, picommon.ConvertErrorCodeToMessage(int(piID), "error")
 	}
 
 	pigpioInitialized = true
-	return piID, nil
+	return int(piID), nil
 }
 
 // newPigpio makes a new pigpio based Board using the given config.
@@ -473,7 +473,7 @@ func (pi *piPigpio) SetGPIOBcom(bcom int, high bool) error {
 }
 
 func (pi *piPigpio) pwmBcom(bcom int) (float64, error) {
-	res := C.get_PWM_dutycycle(pi.piID, C.uint(bcom))
+	res := C.get_PWM_dutycycle(C.int(pi.piID), C.uint(bcom))
 	return float64(res) / 255, nil
 }
 
